@@ -1,3 +1,4 @@
+# encoding: utf8
 """
 PyTorch implementation of the HMAX model of human vision. For more information
 about HMAX, check:
@@ -24,6 +25,29 @@ S1 S1 S1 S1 S1 S1 S1 S1 S1 S1 S1 S1 S1 S1 S1 S1
   C2    C2    C2    C2    C2    C2    C2    C2
 
 Author: Marijn van Vliet <w.m.vanvliet@gmail.com>
+
+References
+----------
+
+  .. [1] Riesenhuber, Maximilian, and Tomaso Poggio. “Hierarchical Models of
+         Object Recognition in Cortex.” Nature Neuroscience 2, no. 11 (1999):
+         1019–25.  https://doi.org/10.1038/14819.
+  .. [2] Serre, T, M Kouh, C Cadieu, U Knoblich, Gabriel Kreiman, and T Poggio.
+         “A Theory of Object Recognition: Computations and Circuits in the
+         Feedforward Path of the Ventral Stream in Primate Visual Cortex.”
+         Artificial Intelligence, no. December (2005): 1–130.
+         https://doi.org/10.1.1.207.9279.
+  .. [3] Serre, Thomas, Aude Oliva, and Tomaso Poggio. “A Feedforward
+         Architecture Accounts for Rapid Categorization.” Proceedings of the
+         National Academy of Sciences 104, no. 15 (April 10, 2007): 6424–29.
+         https://doi.org/10.1073/pnas.0700622104.
+  .. [4] Serre, Thomas, and Maximilian Riesenhuber. “Realistic Modeling of
+         Simple and Complex Cell Tuning in the HMAXModel, and Implications for
+         Invariant Object Recognition in Cortex.” CBCL Memo, no. 239 (2004).
+  .. [5] Serre, Thomas, Lior Wolf, Stanley Bileschi, Maximilian Riesenhuber,
+         and Tomaso Poggio. “Robust Object Recognition with Cortex-like
+         Mechanisms.” IEEE Trans Pattern Anal Mach Intell 29, no. 3 (2007):
+         411–26.  https://doi.org/10.1109/TPAMI.2007.56.
 """
 import numpy as np
 from scipy.io import loadmat
@@ -87,7 +111,7 @@ class S1(nn.Module):
         The size of the filters, measured in pixels. The filters are square,
         hence only a single number (either width or height) needs to be
         specified.
-    wavelength : float (default: 2)
+    wavelength : float
         The wavelength of the grating in the filter, relative to the half the
         size of the filter. For example, a wavelength of 2 will generate a
         Gabor filter with a grating that contains exactly one wave. This
@@ -95,9 +119,10 @@ class S1(nn.Module):
     orientations : list of float
         The orientations of the Gabor filters, in degrees.
     """
-    def __init__(self, size=7, wavelength=4., orientations=[90, -45, 0, 45]):
+    def __init__(self, size, wavelength, orientations=[90, -45, 0, 45]):
         super().__init__()
         self.num_orientations = len(orientations)
+        self.size = size
 
         # Use PyTorch's Conv2d as a base object. Each "channel" will be an
         # orientation.
@@ -135,22 +160,14 @@ class C1(nn.Module):
 
     Parameters
     ----------
-    s1_units : list of S1
-        The S1 layers assigned to this C1 layer. Typically, each S1 layer has
-        filters of a different scale.
     size : int
         Size of the MaxPool2d operation being performed by this C1 layer.
-    stride : int
-        The stride of the MaxPool2d operation being performed by this C1 layer.
-        Defaults to half the size.
     """
-    def __init__(self, s1_units, size, stride=None):
+    def __init__(self, size):
         super().__init__()
-        self.num_orientations = s1_units[0].num_orientations
-        self.s1_units = s1_units
-        if stride is None:
-            stride = size // 2
-        self.local_pool = nn.MaxPool2d(size, stride=stride, padding=size // 2)
+        self.size = size
+        self.local_pool = nn.MaxPool2d(size, stride=size // 2,
+                                       padding=size // 2)
 
     def forward(self, s1_outputs):
         """Max over scales, followed by a MaxPool2d operation."""
@@ -175,9 +192,6 @@ class S2(nn.Module):
 
     Parameters
     ----------
-    c1_units : list of C1
-        The layers of C1 units that serve as input for the S2 units in this
-        layer.
     patches : ndarray, shape (n_patches, n_orientations, size, size)
         The precomputed patches to lead into the weights of this layer.
     activation : 'gaussian' | 'euclidean'
@@ -185,15 +199,23 @@ class S2(nn.Module):
         gaussian curve is used ('guassian', the default), whereas the MATLAB
         implementation of The Laboratory for Computational Cognitive
         Neuroscience uses the euclidean distance ('euclidean').
+    sigma : float
+        The sharpness of the tuning (sigma in eqn 1 of [1]_). Defaults to 1.
+
+    References:
+    -----------
+
+    .. [1] Serre, Thomas, Aude Oliva, and Tomaso Poggio. “A Feedforward
+           Architecture Accounts for Rapid Categorization.” Proceedings of the
+           National Academy of Sciences 104, no. 15 (April 10, 2007): 6424–29.
+           https://doi.org/10.1073/pnas.0700622104.
     """
-    def __init__(self, c1_units, patches, activation='gaussian', sigma=1):
+    def __init__(self, patches, activation='gaussian', sigma=1):
         super().__init__()
-        self.c1_units = c1_units
         self.activation = activation
         self.sigma = sigma
 
         num_patches, num_orientations, size, _ = patches.shape
-        assert c1_units[0].num_orientations == num_orientations
 
         # Main convolution layer
         self.conv = nn.Conv2d(in_channels=num_orientations,
@@ -224,9 +246,7 @@ class S2(nn.Module):
 
     def forward(self, c1_outputs):
         s2_outputs = []
-        #for c1 in self.c1_units:
         for c1_output in c1_outputs:
-            #c1_output = c1(X)
             conv_output = self.conv(c1_output)
 
             # Unstack the orientations
@@ -261,13 +281,8 @@ class S2(nn.Module):
 
 class C2(nn.Module):
     """A layer of C2 units operating on a layer of S2 units."""
-    def __init__(self, s2_unit):
-        super().__init__()
-        self.s2_unit = s2_unit
-
     def forward(self, s2_outputs):
         """Take the maximum value of the underlying S2 units."""
-        # s2_outputs = self.s2_unit(X)
         maxs = [s2.max(dim=3)[0] for s2 in s2_outputs]
         maxs = [m.max(dim=2)[0] for m in maxs]
         maxs = torch.cat([m[:, None, :] for m in maxs], 1)
@@ -277,31 +292,68 @@ class C2(nn.Module):
 class HMAX(nn.Module):
     """The full HMAX model.
 
+    Use the `get_all_layers` method to obtain the activations for all layers.
+
+    If you are only interested in the final output (=C2 layer), use the model
+    as any other PyTorch module:
+
+        model = HMAX(universal_patch_set)
+        output = model(img)
+
     Parameters
     ----------
     universal_patch_set : str
         Filename of the .mat file containing the universal patch set.
     s2_act : 'gaussian' | 'euclidean'
         The activation function for the S2 units. Defaults to 'gaussian'.
+
+    Returns
+    -------
+    c2_output : list of Tensors, shape (batch_size, num_patches)
+        For each scale, the output of the C2 units.
     """
     def __init__(self, universal_patch_set, s2_act='gaussian'):
         super().__init__()
 
         # S1 layers, consisting of units with increasing size
-        s1_sizes = np.arange(7, 39, 2)
-        s1_wavelengths = np.arange(4, 3.15, -0.05)
         self.s1_units = [
-            S1(size=size, wavelength=wavelength)
-            for size, wavelength in zip(s1_sizes, s1_wavelengths)
+            S1(size=7, wavelength=4),
+            S1(size=9, wavelength=3.95),
+            S1(size=11, wavelength=3.9),
+            S1(size=13, wavelength=3.85),
+            S1(size=15, wavelength=3.8),
+            S1(size=17, wavelength=3.75),
+            S1(size=19, wavelength=3.7),
+            S1(size=21, wavelength=3.65),
+            S1(size=23, wavelength=3.6),
+            S1(size=25, wavelength=3.55),
+            S1(size=27, wavelength=3.5),
+            S1(size=29, wavelength=3.45),
+            S1(size=31, wavelength=3.4),
+            S1(size=33, wavelength=3.35),
+            S1(size=35, wavelength=3.3),
+            S1(size=37, wavelength=3.25),
         ]
-        for i, s1 in enumerate(self.s1_units):
-            self.add_module('s1_%d' % i, s1)
+
+        # Explicitly add the S1 units as submodules of the model
+        for s1 in self.s1_units:
+            self.add_module('s1_%02d' % s1.size, s1)
 
         # Each C1 layer pools across two S1 layers
-        self.c1_units = [C1(self.s1_units[i:i + 2], size=i + 8)
-                         for i in range(0, len(self.s1_units), 2)]
-        for i, c1 in enumerate(self.c1_units):
-            self.add_module('c1_%d' % i, c1)
+        self.c1_units = [
+            C1(size=8),
+            C1(size=10),
+            C1(size=12),
+            C1(size=14),
+            C1(size=16),
+            C1(size=18),
+            C1(size=20),
+            C1(size=22),
+        ]
+
+        # Explicitly add the C1 units as submodules of the model
+        for c1 in self.c1_units:
+            self.add_module('c1_%02d' % c1.size, c1)
 
         # Read the universal patch set for the S2 layer
         m = loadmat(universal_patch_set)
@@ -309,22 +361,29 @@ class HMAX(nn.Module):
                    for patch, shape in zip(m['patches'][0], m['patchSizes'].T)]
 
         # One S2 layer for each patch scale, operating on all C1 layers
-        self.s2_units = [S2(self.c1_units, patches=patch, activation=s2_act)
-                         for patch in patches]
+        self.s2_units = [S2(patches=scale_patches, activation=s2_act)
+                         for scale_patches in patches]
+
+        # Explicitly add the S2 units as submodules of the model
         for i, s2 in enumerate(self.s2_units):
             self.add_module('s2_%d' % i, s2)
 
         # One C2 layer operating on each scale
-        self.c2_units = [C2(s2) for s2 in self.s2_units]
+        self.c2_units = [C2() for s2 in self.s2_units]
+
+        # Explicitly add the C2 units as submodules of the model
         for i, c2 in enumerate(self.c2_units):
             self.add_module('c2_%d' % i, c2)
 
     def run_all_layers(self, img):
         """Compute the activation for each layer."""
         s1_outputs = [s1(img) for s1 in self.s1_units]
+
+        # Each C1 layer pools across two S1 layers
         c1_outputs = []
         for c1, i in zip(self.c1_units, range(0, len(self.s1_units), 2)):
             c1_outputs.append(c1(s1_outputs[i:i+2]))
+
         s2_outputs = [s2(c1_outputs) for s2 in self.s2_units]
         c2_outputs = [c2(s2) for c2, s2 in zip(self.c2_units, s2_outputs)]
 
