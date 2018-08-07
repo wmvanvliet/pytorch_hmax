@@ -376,7 +376,25 @@ class HMAX(nn.Module):
             self.add_module('c2_%d' % i, c2)
 
     def run_all_layers(self, img):
-        """Compute the activation for each layer."""
+        """Compute the activation for each layer.
+
+        Parameters
+        ----------
+        img : Tensor, shape (batch_size, 1, height, width)
+            A batch of images to run through the model
+
+        Returns
+        -------
+        s1_outputs : List of Tensors, shape (batch_size, num_orientations, height, width)
+            For each scale, the output of the layer of S1 units.
+        c1_outputs : List of Tensors, shape (batch_size, num_orientations, height, width)
+            For each scale, the output of the layer of C1 units.
+        s2_outputs : List of lists of Tensors, shape (batch_size, num_patches, height, width)
+            For each C1 scale and each patch scale, the output of the layer of
+            S2 units.
+        c2_outputs : List of Tensors, shape (batch_size, num_patches)
+            For each patch scale, the output of the layer of C2 units.
+        """
         s1_outputs = [s1(img) for s1 in self.s1_units]
 
         # Each C1 layer pools across two S1 layers
@@ -397,6 +415,25 @@ class HMAX(nn.Module):
         return c2_outputs
 
     def get_all_layers(self, img):
+        """Get the activation for all layers as NumPy arrays.
+
+        Parameters
+        ----------
+        img : Tensor, shape (batch_size, 1, height, width)
+            A batch of images to run through the model
+
+        Returns
+        -------
+        s1_outputs : List of arrays, shape (batch_size, num_orientations, height, width)
+            For each scale, the output of the layer of S1 units.
+        c1_outputs : List of arrays, shape (batch_size, num_orientations, height, width)
+            For each scale, the output of the layer of C1 units.
+        s2_outputs : List of lists of arrays, shape (batch_size, num_patches, height, width)
+            For each C1 scale and each patch scale, the output of the layer of
+            S2 units.
+        c2_outputs : List of arrays, shape (batch_size, num_patches)
+            For each patch scale, the output of the layer of C2 units.
+        """
         s1_out, c1_out, s2_out, c2_out = self.run_all_layers(img)
         return (
             [s1.cpu().detach().numpy() for s1 in s1_out],
