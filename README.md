@@ -25,3 +25,18 @@ Here is a schematic overview of the network architecture:
       S2    S2    S2    S2    S2    S2    S2    S2
        |     |     |     |     |     |     |     |
       C2    C2    C2    C2    C2    C2    C2    C2
+
+
+Installation
+============
+
+Clone the repository somewhere and run the `example.py` script:
+
+    git clone https://github.com/wmvanvliet/pytorch_hmax
+    python example.py
+
+
+Usage
+=====
+
+See the `example.py` script on how to run the model on 10 example images.
