@@ -30,6 +30,10 @@ Here is a schematic overview of the network architecture:
 Installation
 ============
 
+This script depends on the [NumPy, SciPy](https://www.scipy.org), [PyTorch and
+TorchVision](https://pytorch.org) packages.
+
+
 Clone the repository somewhere and run the `example.py` script:
 
     git clone https://github.com/wmvanvliet/pytorch_hmax
