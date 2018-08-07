@@ -1,7 +1,6 @@
 """
-PyTorch implementation of the HMAX model that closely follows that of the
-MATLAB implementation of The Laboratory for Computational Cognitive
-Neuroscience:
+PyTorch implementation of the HMAX model of human vision. For more information
+about HMAX, check:
 
     http://maxlab.neuro.georgetown.edu/hmax.html
 
@@ -30,6 +29,7 @@ import numpy as np
 from scipy.io import loadmat
 import torch
 from torch import nn
+
 
 def gabor_filter(size, wavelength, orientation):
     """Create a single gabor filter.
@@ -172,10 +172,25 @@ class S2(nn.Module):
 
       d = sqrt( (w - p)^2 )
         = sqrt( w^2 - 2pw + p^2 )
+
+    Parameters
+    ----------
+    c1_units : list of C1
+        The layers of C1 units that serve as input for the S2 units in this
+        layer.
+    patches : ndarray, shape (n_patches, n_orientations, size, size)
+        The precomputed patches to lead into the weights of this layer.
+    activation : 'gaussian' | 'euclidean'
+        Which activation function to use for the units. In the PNAS paper, a
+        gaussian curve is used ('guassian', the default), whereas the MATLAB
+        implementation of The Laboratory for Computational Cognitive
+        Neuroscience uses the euclidean distance ('euclidean').
     """
-    def __init__(self, c1_units, patches):
+    def __init__(self, c1_units, patches, activation='gaussian', sigma=1):
         super().__init__()
         self.c1_units = c1_units
+        self.activation = activation
+        self.sigma = sigma
 
         num_patches, num_orientations, size, _ = patches.shape
         assert c1_units[0].num_orientations == num_orientations
@@ -227,8 +242,18 @@ class S2(nn.Module):
                 torch.sum(c1_output ** 2, dim=1, keepdim=True))
             dist = c1_sq - 2 * s2_output
             dist += self.patches_sum_sq[None, :, None, None]
-            dist[dist < 0] = 0  # Negative values should never occur
-            torch.sqrt_(dist)
+
+            # Apply activation function
+            if self.activation == 'gaussian':
+                dist = torch.exp(- 1 / (2 * self.sigma ** 2) * dist)
+            elif self.activation == 'euclidean':
+                dist[dist < 0] = 0  # Negative values should never occur
+                torch.sqrt_(dist)
+                dist = -dist
+            else:
+                raise ValueError("activation parameter should be either "
+                                 "'gaussian' or 'euclidean'.")
+
             outputs.append(dist)
         return outputs
 
@@ -240,12 +265,12 @@ class C2(nn.Module):
         self.s2_unit = s2_unit
 
     def forward(self, X):
-        """Take the minimum value of the underlying S2 units."""
+        """Take the maximum value of the underlying S2 units."""
         s2_outputs = self.s2_unit(X)
-        mins = [s2.min(dim=3)[0] for s2 in s2_outputs]
-        mins = [m.min(dim=2)[0] for m in mins]
-        mins = torch.cat([m[:, None, :] for m in mins], 1)
-        return mins.min(dim=1)[0]
+        maxs = [s2.max(dim=3)[0] for s2 in s2_outputs]
+        maxs = [m.max(dim=2)[0] for m in maxs]
+        maxs = torch.cat([m[:, None, :] for m in maxs], 1)
+        return maxs.max(dim=1)[0]
 
 
 class HMAX(nn.Module):
@@ -255,8 +280,10 @@ class HMAX(nn.Module):
     ----------
     universal_patch_set : str
         Filename of the .mat file containing the universal patch set.
+    s2_act : 'gaussian' | 'euclidean'
+        The activation function for the S2 units. Defaults to 'gaussian'.
     """
-    def __init__(self, universal_patch_set):
+    def __init__(self, universal_patch_set, s2_act='gaussian'):
         super().__init__()
 
         # S1 layers, consisting of units with increasing size
@@ -281,7 +308,7 @@ class HMAX(nn.Module):
                    for patch, shape in zip(m['patches'][0], m['patchSizes'].T)]
 
         # One S2 layer for each patch scale, operating on all C1 layers
-        self.s2_units = [S2(self.c1_units, patches=patch)
+        self.s2_units = [S2(self.c1_units, patches=patch, activation=s2_act)
                          for patch in patches]
         for i, s2 in enumerate(self.s2_units):
             self.add_module('s2_%d' % i, s2)
