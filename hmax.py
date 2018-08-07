@@ -119,13 +119,13 @@ class S1(nn.Module):
         for p in self.parameters():
             p.requires_grad = False
 
-    def forward(self, X):
+    def forward(self, img):
         """Apply Gabor filters, take absolute value, and normalize."""
-        out = torch.abs(self.gabor(X))
-        norm = torch.sqrt(self.uniform(X ** 2))
+        s1_output = torch.abs(self.gabor(img))
+        norm = torch.sqrt(self.uniform(img ** 2))
         norm.data[norm == 0] = 1  # To avoid divide by zero
-        out /= norm
-        return out
+        s1_output /= norm
+        return s1_output
 
 
 class C1(nn.Module):
@@ -152,9 +152,9 @@ class C1(nn.Module):
             stride = size // 2
         self.local_pool = nn.MaxPool2d(size, stride=stride, padding=size // 2)
 
-    def forward(self, X):
+    def forward(self, s1_outputs):
         """Max over scales, followed by a MaxPool2d operation."""
-        s1_outputs = torch.cat([s1(X).unsqueeze(0) for s1 in self.s1_units], 0)
+        s1_outputs = torch.cat([out.unsqueeze(0) for out in s1_outputs], 0)
 
         # Pool over all scales
         s1_output, _ = torch.max(s1_outputs, dim=0)
@@ -222,25 +222,26 @@ class S2(nn.Module):
         for p in self.parameters():
             p.requires_grad = False
 
-    def forward(self, X):
-        outputs = []
-        for c1 in self.c1_units:
-            c1_output = c1(X)
-            s2_output = self.conv(c1_output)
+    def forward(self, c1_outputs):
+        s2_outputs = []
+        #for c1 in self.c1_units:
+        for c1_output in c1_outputs:
+            #c1_output = c1(X)
+            conv_output = self.conv(c1_output)
 
             # Unstack the orientations
-            s2_output_size = s2_output.shape[3]
-            s2_output = s2_output.view(
-                -1, self.num_orientations, self.num_patches, s2_output_size,
-                s2_output_size)
+            conv_output_size = conv_output.shape[3]
+            conv_output = conv_output.view(
+                -1, self.num_orientations, self.num_patches, conv_output_size,
+                conv_output_size)
 
             # Pool over orientations
-            s2_output = s2_output.sum(dim=1)
+            conv_output = conv_output.sum(dim=1)
 
             # Compute distance
             c1_sq = self.uniform(
                 torch.sum(c1_output ** 2, dim=1, keepdim=True))
-            dist = c1_sq - 2 * s2_output
+            dist = c1_sq - 2 * conv_output
             dist += self.patches_sum_sq[None, :, None, None]
 
             # Apply activation function
@@ -254,8 +255,8 @@ class S2(nn.Module):
                 raise ValueError("activation parameter should be either "
                                  "'gaussian' or 'euclidean'.")
 
-            outputs.append(dist)
-        return outputs
+            s2_outputs.append(dist)
+        return s2_outputs
 
 
 class C2(nn.Module):
@@ -264,9 +265,9 @@ class C2(nn.Module):
         super().__init__()
         self.s2_unit = s2_unit
 
-    def forward(self, X):
+    def forward(self, s2_outputs):
         """Take the maximum value of the underlying S2 units."""
-        s2_outputs = self.s2_unit(X)
+        # s2_outputs = self.s2_unit(X)
         maxs = [s2.max(dim=3)[0] for s2 in s2_outputs]
         maxs = [m.max(dim=2)[0] for m in maxs]
         maxs = torch.cat([m[:, None, :] for m in maxs], 1)
@@ -318,7 +319,29 @@ class HMAX(nn.Module):
         for i, c2 in enumerate(self.c2_units):
             self.add_module('c2_%d' % i, c2)
 
-    def forward(self, X):
+    def run_all_layers(self, img):
+        """Compute the activation for each layer."""
+        s1_outputs = [s1(img) for s1 in self.s1_units]
+        c1_outputs = []
+        for c1, i in zip(self.c1_units, range(0, len(self.s1_units), 2)):
+            c1_outputs.append(c1(s1_outputs[i:i+2]))
+        s2_outputs = [s2(c1_outputs) for s2 in self.s2_units]
+        c2_outputs = [c2(s2) for c2, s2 in zip(self.c2_units, s2_outputs)]
+
+        return s1_outputs, c1_outputs, s2_outputs, c2_outputs
+
+    def forward(self, img):
         """Run through everything and concatenate the output of the C2s."""
-        c2_output = [c2(X)[:, :, None] for c2 in self.c2_units]
-        return torch.cat(c2_output, 2)
+        c2_outputs = self.run_all_layers(img)[-1]
+        c2_outputs = torch.cat(
+            [c2_out[:, None, :] for c2_out in c2_outputs], 1)
+        return c2_outputs
+
+    def get_all_layers(self, img):
+        s1_out, c1_out, s2_out, c2_out = self.run_all_layers(img)
+        return (
+            [s1.cpu().detach().numpy() for s1 in s1_out],
+            [c1.cpu().detach().numpy() for c1 in c1_out],
+            [[s2_.cpu().detach().numpy() for s2_ in s2] for s2 in s2_out],
+            [c2.cpu().detach().numpy() for c2 in c2_out],
+        )

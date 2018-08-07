@@ -6,7 +6,7 @@ Authors: Marijn van Vliet <w.m.vanvliet@gmail.com>
 import torch
 from torch.utils.data import DataLoader
 from torchvision import datasets, transforms
-from scipy.io import savemat
+import pickle
 
 import hmax
 
@@ -34,9 +34,9 @@ device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
 print('Running model on', device)
 model = model.to(device)
 for X, y in dataloader:
-    output = model(X.to(device))
+    s1, c1, s2, c2 = model.get_all_layers(X.to(device))
 
-savemat('./C2_output.mat', dict(C2_output=output))
-print('Output of C2 units was saved to: C2_output.mat')
-
+print('Saving output of all layers to: output.pkl')
+with open('output.pkl', 'wb') as f:
+    pickle.dump(dict(s1=s1, c1=c1, s2=s2, c2=c2), f)
 print('[done]')
