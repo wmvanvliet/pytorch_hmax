@@ -44,3 +44,26 @@ Usage
 =====
 
 See the `example.py` script on how to run the model on 10 example images.
+
+
+Explanation of the output
+=========================
+
+The `hmax.get_all_layers` method returns a 4-tuple: `s1`, `c1`, `s2`, `c2`.
+Here is a detailed explanation of the dimensions of each of these variables:
+
+`s1`
+----
+These are the first simple units in the model, that perform a 2D convolution with Gabor filters. There are 4 Gabor filters, oriented at 90, -45, 0 and 45 degrees. Each filter is defined at 16 different scales. The `s1` variable is a list of length 16, containing the output at each scale. Each element is a NumPy array of shape `#images x #rotations x image_height x image_width` that is the result of the convolution operation.
+
+`c1`
+----
+The output of the `s1` units is processed by the `c1` units, which perform a maxpool operation. This is done in 8 scales (pooling across a different number of pixels). The `c1` variable is alist of lengh 8, containing the output at each `s1` scale. Each element is a NumPy array of shape `#images x #rotations x height x width`.
+
+`s2`
+----
+The output of the `c1` units is processed by the `s2` units, which perform 2D convolution again (not with Gabor filters this time, but pre-trained filters). This is done in 8 scales, operating on each of the 8 scaled of the c1 output. The `s2` variable is a list of lengh 8, containing the output at each scale. Each element is again a list of length 8, matching the 8 scales of the `c1` units. The elements of this list are NumPy arrays of shape `#images x #filters x height x width` containing the convolution output.
+
+`c2`
+----
+The output of the `s2` units is processed by the `c2` units, which perform a maxpool operation for each `s2` filter. The `c2` variable is a list of length 8, containing the output at each `s2` scale. Each element is a NumPy array of shape `#images x #filters` containing the result of the maxpool operation.
