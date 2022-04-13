@@ -62,7 +62,7 @@ The output of the `s1` units is processed by the `c1` units, which perform a max
 
 `s2`
 ----
-The output of the `c1` units is processed by the `s2` units, which perform 2D convolution again (not with Gabor filters this time, but pre-trained filters loaded from the `universal_patch_set.mat` file). This is done in 8 scales, operating on each of the 8 scaled of the c1 output. The `s2` variable is a list of lengh 8, containing the output at each scale. Each element is again a list of length 8, matching the 8 scales of the `c1` units. The elements of this list are NumPy arrays of shape `#images x #filters x height x width` containing the convolution output.
+The output of the `c1` units is processed by the `s2` units, which perform 2D convolution again (not with Gabor filters this time, but pre-trained filters loaded from the `universal_patch_set.mat` file). This is done in 8 scales, operating on each of the 8 scales of the c1 output. The `s2` variable is a list of lengh 8, containing the output at each scale. Each element is again a list of length 8, matching the 8 scales of the `c1` units. The elements of this list are NumPy arrays of shape `#images x #filters x height x width` containing the convolution output.
 
 `c2`
 ----
