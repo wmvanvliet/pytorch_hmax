@@ -127,7 +127,16 @@ class S1(nn.Module):
         # Use PyTorch's Conv2d as a base object. Each "channel" will be an
         # orientation.
         self.gabor = nn.Conv2d(1, self.num_orientations, size,
-                               padding=size // 2, bias=False)
+                               padding='same', bias=False)
+
+        # The original HMAX code has a rather unique approach to padding during
+        # convolution. First, the convolution is performed with padding='same',
+        # and then the borders of the result are replaced with zeros. The
+        # computation of the border width is as follows:
+        self.padding_left = (size + 1) // 2
+        self.padding_right = (size - 1) // 2
+        self.padding_top = (size + 1) // 2
+        self.padding_bottom = (size - 1) // 2
 
         # Fill the Conv2d filter weights with Gabor kernels: one for each
         # orientation
@@ -147,6 +156,10 @@ class S1(nn.Module):
     def forward(self, img):
         """Apply Gabor filters, take absolute value, and normalize."""
         s1_output = torch.abs(self.gabor(img))
+        s1_output[:, :, :, :self.padding_left] = 0
+        s1_output[:, :, :, -self.padding_right:] = 0
+        s1_output[:, :, :self.padding_top, :] = 0
+        s1_output[:, :, -self.padding_bottom:, :] = 0
         norm = torch.sqrt(self.uniform(img ** 2))
         norm.data[norm == 0] = 1  # To avoid divide by zero
         s1_output /= norm
@@ -169,6 +182,10 @@ class C1(nn.Module):
         self.local_pool = nn.MaxPool2d(size, stride=size // 2,
                                        padding=size // 2)
 
+        # Since everything is pre-computed, no gradient is required
+        for p in self.parameters():
+            p.requires_grad = False
+
     def forward(self, s1_outputs):
         """Max over scales, followed by a MaxPool2d operation."""
         s1_outputs = torch.cat([out.unsqueeze(0) for out in s1_outputs], 0)
@@ -177,7 +194,15 @@ class C1(nn.Module):
         s1_output, _ = torch.max(s1_outputs, dim=0)
 
         # Pool over local (c1_space x c1_space) neighbourhood
-        return self.local_pool(s1_output)
+        c1_output = self.local_pool(s1_output)
+
+        # Hence we need to shift the output after the convolution by 1 pixel to
+        # exactly match the wonky implementation.
+        c1_output = torch.roll(c1_output, (-1, -1), dims=(2, 3))
+        c1_output[:, :, -1, :] = 0
+        c1_output[:, :, :, -1] = 0
+
+        return c1_output
 
 
 class S2(nn.Module):
@@ -248,6 +273,7 @@ class S2(nn.Module):
         s2_outputs = []
         for c1_output in c1_outputs:
             conv_output = self.conv(c1_output)
+            conv_output = conv_output[:, :, 1:, 1:]
 
             # Unstack the orientations
             conv_output_size = conv_output.shape[3]
@@ -261,6 +287,7 @@ class S2(nn.Module):
             # Compute distance
             c1_sq = self.uniform(
                 torch.sum(c1_output ** 2, dim=1, keepdim=True))
+            c1_sq = c1_sq[:, :, 1:, 1:]
             dist = c1_sq - 2 * conv_output
             dist += self.patches_sum_sq[None, :, None, None]
 
@@ -270,7 +297,6 @@ class S2(nn.Module):
             elif self.activation == 'euclidean':
                 dist[dist < 0] = 0  # Negative values should never occur
                 torch.sqrt_(dist)
-                dist = -dist
             else:
                 raise ValueError("activation parameter should be either "
                                  "'gaussian' or 'euclidean'.")
@@ -283,10 +309,15 @@ class C2(nn.Module):
     """A layer of C2 units operating on a layer of S2 units."""
     def forward(self, s2_outputs):
         """Take the maximum value of the underlying S2 units."""
-        maxs = [s2.max(dim=3)[0] for s2 in s2_outputs]
-        maxs = [m.max(dim=2)[0] for m in maxs]
-        maxs = torch.cat([m[:, None, :] for m in maxs], 1)
-        return maxs.max(dim=1)[0]
+        #maxs = [s2.max(dim=3)[0] for s2 in s2_outputs]
+        #maxs = [m.max(dim=2)[0] for m in maxs]
+        #maxs = torch.cat([m[:, None, :] for m in maxs], 1)
+        #return maxs.max(dim=1)[0]
+
+        mins = [s2.min(dim=3)[0] for s2 in s2_outputs]
+        mins = [m.min(dim=2)[0] for m in mins]
+        mins = torch.cat([m[:, None, :] for m in mins], 1)
+        return mins.min(dim=1)[0]
 
 
 class HMAX(nn.Module):
@@ -333,6 +364,7 @@ class HMAX(nn.Module):
             S1(size=33, wavelength=3.35),
             S1(size=35, wavelength=3.3),
             S1(size=37, wavelength=3.25),
+            S1(size=39, wavelength=3.20),
         ]
 
         # Explicitly add the S1 units as submodules of the model
