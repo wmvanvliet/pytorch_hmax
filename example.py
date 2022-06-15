@@ -17,7 +17,9 @@ model = hmax.HMAX('./universal_patch_set.mat')
 # A folder with example images
 example_images = datasets.ImageFolder(
     './example_images/',
+    #'/l/vanvlm1/large_word_stimuli/train',
     transform=transforms.Compose([
+        transforms.Resize(256),
         transforms.Grayscale(),
         transforms.ToTensor(),
         transforms.Lambda(lambda x: x * 255),
@@ -25,7 +27,7 @@ example_images = datasets.ImageFolder(
 )
 
 # A dataloader that will run through all example images in one batch
-dataloader = DataLoader(example_images, batch_size=10)
+dataloader = DataLoader(example_images, batch_size=len(example_images))
 
 # Determine whether there is a compatible GPU available
 device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
@@ -33,8 +35,9 @@ device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
 # Run the model on the example images
 print('Running model on', device)
 model = model.to(device)
-for X, y in dataloader:
-    s1, c1, s2, c2 = model.get_all_layers(X.to(device))
+for x, y in dataloader:
+    s1, c1, s2, c2 = model.get_all_layers(x.to(device))
+    break
 
 print('Saving output of all layers to: output.pkl')
 with open('output.pkl', 'wb') as f:
