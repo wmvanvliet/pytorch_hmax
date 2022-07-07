@@ -336,14 +336,14 @@ class HMAX(nn.Module):
     universal_patch_set : str
         Filename of the .mat file containing the universal patch set.
     s2_act : 'gaussian' | 'euclidean'
-        The activation function for the S2 units. Defaults to 'gaussian'.
+        The activation function for the S2 units. Defaults to 'euclidean'.
 
     Returns
     -------
     c2_output : list of Tensors, shape (batch_size, num_patches)
         For each scale, the output of the C2 units.
     """
-    def __init__(self, universal_patch_set, s2_act='gaussian'):
+    def __init__(self, universal_patch_set, s2_act='euclidean'):
         super().__init__()
 
         # S1 layers, consisting of units with increasing size
