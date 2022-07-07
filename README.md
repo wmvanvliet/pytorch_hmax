@@ -1,3 +1,5 @@
+[![DOI](https://zenodo.org/badge/143711096.svg)](https://zenodo.org/badge/latestdoi/143711096)
+
 PyTorch implementation of HMAX
 ==============================
 
