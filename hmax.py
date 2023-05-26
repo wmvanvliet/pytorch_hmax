@@ -255,7 +255,8 @@ class S2(nn.Module):
                               groups=num_orientations,
                               bias=False)
         self.conv.weight.data = torch.Tensor(
-            patches.transpose(1, 0, 2, 3).reshape(1600, 1, size, size))
+            patches.transpose(1, 0, 2, 3).reshape(num_orientations * num_patches,
+                                                  1, size, size))
 
         # A convolution layer filled with ones. This is used for the distance
         # computation
